@@ -40,6 +40,9 @@ dependencies:
   equatable: ^2.0.5
   get_it: ^8.0.0
   dio: ^5.7.0
+  json_text_field: ^1.2.0
+  toastification: ^2.3.0
+  animated_accordion: ^1.1.2
 
 dev_dependencies:
   flutter_test:

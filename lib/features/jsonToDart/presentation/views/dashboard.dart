@@ -1,8 +1,8 @@
 import 'dart:convert';
-
+import 'dart:developer';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:json_text_field/json_text_field.dart';
 import 'package:json_to_dart/config/constants/json_constants.dart';
 import 'package:json_to_dart/config/extensions/context_extensions.dart';
 import 'package:json_to_dart/config/items/borders.dart';
@@ -20,8 +20,8 @@ class Dashboard extends StatefulWidget {
 }
 
 class _DashboardState extends State<Dashboard> with DashboardMixin {
-  final TextEditingController _jsonController =
-      TextEditingController(text: JsonConstants.jsonHint);
+  final JsonTextFieldController _jsonController = JsonTextFieldController();
+
   final TextEditingController _dartClassNameController =
       TextEditingController(text: "MyClass");
   final ScrollController _methodsController = ScrollController();
@@ -72,9 +72,17 @@ class _DashboardState extends State<Dashboard> with DashboardMixin {
         });
       }
     } catch (e) {
-      setState(() {
-        _dartClass = 'Error: ${e.toString()}';
-      });
+      if (e is FormatException) {
+        setState(() {
+          _dartClass = 'Invalid JSON format.';
+        });
+      } else {
+        log(e.toString());
+      }
+
+      // setState(() {
+      //   _dartClass = 'Error: ${e.toString()}';
+      // });
     }
   }
 
@@ -82,7 +90,7 @@ class _DashboardState extends State<Dashboard> with DashboardMixin {
     final className = _dartClassNameController.text;
     StringBuffer classBuffer = StringBuffer();
 
-    // JsonSerializable ile part directive ekleme
+    // Add part directive if applicable
     if (isJsonSerializable || isFreezedCompatible || isHiveCompatible) {
       if (partDirective.isEmpty) {
         partDirective = 'my_class.g.dart';
@@ -90,12 +98,12 @@ class _DashboardState extends State<Dashboard> with DashboardMixin {
       classBuffer.writeln("part '$partDirective.g.dart';");
     }
 
-    // JsonSerializable uyumluluğu
+    // JsonSerializable compatibility
     if (isJsonSerializable) {
       classBuffer.writeln("@JsonSerializable()");
     }
 
-    // Freezed uyumluluğu
+    // Freezed compatibility
     if (isFreezedCompatible) {
       classBuffer.writeln("@freezed");
       classBuffer.writeln("class $className with _\$$className {");
@@ -110,17 +118,17 @@ class _DashboardState extends State<Dashboard> with DashboardMixin {
           "\n  factory $className.fromJson(Map<String, dynamic> json) => _\$FromJson(json);");
       classBuffer.writeln("}");
     } else {
-      // Hive uyumluluğu
+      // Hive compatibility
       if (isHiveCompatible) {
         classBuffer.writeln("@HiveType(typeId: 0)");
       }
 
-      // Sınıf tanımı
+      // Class definition
       classBuffer.writeln(isHiveCompatible
           ? 'class $className extends HiveObject {'
           : 'class $className {');
 
-      // Alanları tanımlama
+      // Field declarations
       jsonData.forEach((key, value) {
         String fieldType = _getFieldType(value);
         String fieldDeclaration = '';
@@ -131,12 +139,12 @@ class _DashboardState extends State<Dashboard> with DashboardMixin {
               .writeln("  @HiveField(${jsonData.keys.toList().indexOf(key)})");
         }
 
-        // JsonKey anotasyonu
+        // JsonKey annotations
         if (isJsonSerializable) {
           classBuffer.writeln("  @JsonKey(name: '$key')");
         }
 
-        // Final ve Null safety kontrolü
+        // Final and null safety check
         if (arePropertiesFinal) {
           fieldDeclaration += 'final ';
         }
@@ -157,7 +165,7 @@ class _DashboardState extends State<Dashboard> with DashboardMixin {
       });
       classBuffer.writeln('  });');
 
-      // fromJson ve toJson metotları (JsonSerializable veya isEncoderDecoderInClass kontrolü)
+      // fromJson and toJson methods (check JsonSerializable or EncoderDecoder)
       if (isJsonSerializable) {
         classBuffer.writeln(
             '\n  factory $className.fromJson(Map<String, dynamic> json) => _\$${className}FromJson(json);');
@@ -188,7 +196,7 @@ class _DashboardState extends State<Dashboard> with DashboardMixin {
         classBuffer.writeln('  }');
       }
 
-      // CopyWith metodu (isCopyWithGenerated kontrolü)
+      // CopyWith method
       if (isCopyWithGenerated) {
         classBuffer.writeln('\n  $className copyWith({');
         jsonData.forEach((key, value) {
@@ -203,13 +211,13 @@ class _DashboardState extends State<Dashboard> with DashboardMixin {
         classBuffer.writeln('  }');
       }
 
-      // Merge Similar Classes (mergeSimilarClasses kontrolü)
+      // Merge Similar Classes functionality
       if (mergeSimilarClasses) {
         classBuffer.writeln(
             '\n  // Merge similar classes functionality could go here');
       }
 
-      // Detect UUIDs, Dates, Maps özellikleri
+      // Detect UUIDs, Dates, Maps functionality
       if (detectUUIDs || detectDates || detectMaps) {
         jsonData.forEach((key, value) {
           String fieldType = _getFieldType(value);
@@ -236,18 +244,200 @@ class _DashboardState extends State<Dashboard> with DashboardMixin {
       classBuffer.writeln('}');
     }
 
+    // İç içe sınıflar oluşturma
+    jsonData.forEach((key, value) {
+      if (value is Map) {
+        classBuffer.writeln(
+            '\n${generateNestedClass(key, value as Map<String, dynamic>)}');
+      }
+    });
+
     return classBuffer.toString();
   }
 
-// _getFieldType fonksiyonu, field tipini döndüren bir yardımcı fonksiyon
+  String generateNestedClass(String key, Map<String, dynamic> jsonData) {
+    final className = _getClassName(key);
+    StringBuffer classBuffer = StringBuffer();
+
+    // Add part directive if applicable
+    if (isJsonSerializable || isFreezedCompatible || isHiveCompatible) {
+      if (partDirective.isEmpty) {
+        partDirective = 'my_class.g.dart';
+      }
+      classBuffer.writeln("part '$partDirective.g.dart';");
+    }
+
+    // JsonSerializable compatibility
+    if (isJsonSerializable) {
+      classBuffer.writeln("@JsonSerializable()");
+    }
+
+    // Freezed compatibility
+    if (isFreezedCompatible) {
+      classBuffer.writeln("@freezed");
+      classBuffer.writeln("class $className with _\$$className {");
+      classBuffer.writeln("  const factory $className({");
+      jsonData.forEach((key, value) {
+        String fieldType = _getFieldType(value);
+        classBuffer
+            .writeln("    ${isNullSafety ? '$fieldType?' : fieldType} $key,");
+      });
+      classBuffer.writeln("  }) = _$className;");
+      classBuffer.writeln(
+          "\n  factory $className.fromJson(Map<String, dynamic> json) => _\$FromJson(json);");
+      classBuffer.writeln("}");
+    } else {
+      // Hive compatibility
+      if (isHiveCompatible) {
+        classBuffer.writeln("@HiveType(typeId: 0)");
+      }
+
+      // Class definition
+      classBuffer.writeln(isHiveCompatible
+          ? 'class $className extends HiveObject {'
+          : 'class $className {');
+
+      // Field declarations
+      jsonData.forEach((key, value) {
+        String fieldType = _getFieldType(value);
+        String fieldDeclaration = '';
+
+        // Hive Field annotations
+        if (isHiveCompatible) {
+          classBuffer
+              .writeln("  @HiveField(${jsonData.keys.toList().indexOf(key)})");
+        }
+
+        // JsonKey annotations
+        if (isJsonSerializable) {
+          classBuffer.writeln("  @JsonKey(name: '$key')");
+        }
+
+        // Final and null safety check
+        if (arePropertiesFinal) {
+          fieldDeclaration += 'final ';
+        }
+
+        fieldDeclaration +=
+            isNullSafety ? '$fieldType? $key;' : '$fieldType $key;';
+        classBuffer.writeln('  $fieldDeclaration');
+      });
+
+      // Constructor
+      classBuffer.writeln('\n  $className({');
+      jsonData.forEach((key, value) {
+        if (arePropertiesRequired && isNullSafety) {
+          classBuffer.writeln('    required this.$key,');
+        } else {
+          classBuffer.writeln('    this.$key,');
+        }
+      });
+      classBuffer.writeln('  });');
+
+      // fromJson and toJson methods (check JsonSerializable or EncoderDecoder)
+      if (isJsonSerializable) {
+        classBuffer.writeln(
+            '\n  factory $className.fromJson(Map<String, dynamic> json) => _\$${className}FromJson(json);');
+
+        classBuffer.writeln(
+            '\n  Map<String, dynamic> toJson() => _\$${className}ToJson(this);');
+      }
+      if (isEncoderDecoderInClass) {
+        classBuffer.writeln(
+            '\n  factory $className.fromJson(Map<String, dynamic> json) {');
+        classBuffer.writeln('    return $className(');
+
+        jsonData.forEach((key, value) {
+          classBuffer.writeln('      $key: json[\'$key\'],');
+        });
+
+        classBuffer.writeln('    );');
+        classBuffer.writeln('  }');
+
+        classBuffer.writeln('\n  Map<String, dynamic> toJson() {');
+        classBuffer.writeln('    return {');
+
+        jsonData.forEach((key, value) {
+          classBuffer.writeln('      \'$key\': $key,');
+        });
+
+        classBuffer.writeln('    };');
+        classBuffer.writeln('  }');
+      }
+
+      // CopyWith method
+      if (isCopyWithGenerated) {
+        classBuffer.writeln('\n  $className copyWith({');
+        jsonData.forEach((key, value) {
+          classBuffer.writeln('    ${value.runtimeType}? $key,');
+        });
+        classBuffer.writeln('  }) {');
+        classBuffer.writeln('    return $className(');
+        jsonData.forEach((key, value) {
+          classBuffer.writeln('      $key: $key ?? this.$key,');
+        });
+        classBuffer.writeln('    );');
+        classBuffer.writeln('  }');
+      }
+
+      // Merge Similar Classes functionality
+      if (mergeSimilarClasses) {
+        classBuffer.writeln(
+            '\n  // Merge similar classes functionality could go here');
+      }
+
+      // Detect UUIDs, Dates, Maps functionality
+      if (detectUUIDs || detectDates || detectMaps) {
+        jsonData.forEach((key, value) {
+          String fieldType = _getFieldType(value);
+
+          if (detectUUIDs &&
+              fieldType == 'String' &&
+              key.toLowerCase().contains('uuid')) {
+            classBuffer.writeln('  // Detected UUID: $key');
+          }
+
+          if (detectDates &&
+              (fieldType == 'String' || fieldType == 'int') &&
+              (key.toLowerCase().contains('date') ||
+                  key.toLowerCase().contains('time'))) {
+            classBuffer.writeln('  // Detected Date/Time: $key');
+          }
+
+          if (detectMaps && value is Map) {
+            classBuffer.writeln('  // Detected Map: $key');
+          }
+        });
+      }
+
+      classBuffer.writeln('}');
+    }
+
+    // İç içe sınıflar oluşturma
+    jsonData.forEach((key, value) {
+      if (value is Map) {
+        classBuffer.writeln(
+            '\n${generateNestedClass(key, value as Map<String, dynamic>)}');
+      }
+    });
+
+    return classBuffer.toString();
+  }
+
+  // Helper function to determine field types
   String _getFieldType(dynamic value) {
     if (value is String) return 'String';
     if (value is int) return 'int';
     if (value is double) return 'double';
     if (value is bool) return 'bool';
     if (value is List) return 'List<${_getFieldType(value.first)}>';
-    if (value is Map) return 'Map<String, dynamic>';
+    if (value is Map) return _getClassName(value.keys.first);
     return 'dynamic';
+  }
+
+  // Yardımcı sınıf adı oluşturma fonksiyonu
+  String _getClassName(String key) {
+    return key[0].toUpperCase() + key.substring(1);
   }
 
   @override
@@ -257,142 +447,25 @@ class _DashboardState extends State<Dashboard> with DashboardMixin {
         preferredSize: Size.fromHeight(
           context.dynamicHeight(0.07),
         ),
-        child: const AppHeader(),
+        child: Builder(builder: (context) {
+          return const AppHeader();
+        }),
       ),
-      body: Padding(
-        padding: context.paddingAllDefault,
-        child: Row(
-          children: [
-            Expanded(
-              flex: 2,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Padding(
-                    padding: context.paddingBottomLow,
-                    child: Text(
-                      'JSON to Dart Class Converter',
-                      style: context.textTheme.titleLarge,
-                    ),
-                  ),
-                  Expanded(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        border: Borders.kContainerBase,
-                        boxShadow: const [
-                          BoxShadows.kLarge,
-                        ],
-                      ),
-                      padding: context.paddingAllLow,
-                      child: Stack(
-                        children: [
-                          Form(
-                            key: formKey,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Padding(
-                                  padding: context.paddingVerticalDefault,
-                                  child: TextFormField(
-                                    textAlignVertical: TextAlignVertical.top,
-                                    controller: _dartClassNameController,
-                                    maxLines: 1,
-                                    textAlign: TextAlign.start,
-                                    cursorColor: AppColors.kPrimaryLight,
-                                    mouseCursor: MouseCursor.defer,
-                                    keyboardType: TextInputType.multiline,
-                                    cursorErrorColor: AppColors.kError,
-                                    maxLengthEnforcement: MaxLengthEnforcement
-                                        .truncateAfterCompositionEnds,
-                                    decoration: InputDecoration(
-                                      labelText: 'Class Name',
-                                      border: Borders.kTextInputBase,
-                                      hintText: JsonConstants.jsonHint,
-                                      disabledBorder:
-                                          Borders.kTextInputDisabled,
-                                      errorBorder: Borders.kTextInputError,
-                                      focusedBorder: Borders.kTextInputFocused,
-                                    ),
-                                  ),
-                                ),
-                                Expanded(
-                                  child: TextFormField(
-                                    textAlignVertical: TextAlignVertical.top,
-                                    controller: _jsonController,
-                                    expands: true,
-                                    maxLines: null,
-                                    minLines: null,
-                                    autofocus: true,
-                                    cursorColor: AppColors.kPrimaryLight,
-                                    mouseCursor: MouseCursor.defer,
-                                    textAlign: TextAlign.start,
-                                    keyboardType: TextInputType.multiline,
-                                    cursorErrorColor: AppColors.kError,
-                                    validator: (value) => value!.isEmpty
-                                        ? 'Please enter a valid JSON'
-                                        : null,
-                                    maxLengthEnforcement: MaxLengthEnforcement
-                                        .truncateAfterCompositionEnds,
-                                    decoration: InputDecoration(
-                                      labelText: 'JSON',
-                                      border: Borders.kTextInputBase,
-                                      hintText: JsonConstants.jsonHint,
-                                      disabledBorder:
-                                          Borders.kTextInputDisabled,
-                                      errorBorder: Borders.kTextInputError,
-                                      focusedBorder: Borders.kTextInputFocused,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Padding(
-                            padding: context.paddingAllDefault,
-                            child: Align(
-                              alignment: Alignment.bottomRight,
-                              child: MaterialButton(
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                color: AppColors.kPrimaryLight,
-                                onPressed: _convertJSON,
-                                child: Padding(
-                                  padding: context.paddingAllLow,
-                                  child: Text(
-                                    'Convert to Dart Class',
-                                    style:
-                                        context.textTheme.bodySmall?.copyWith(
-                                      color: AppColors.kWhite,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            // Class Generation Options (Null Safety, Types only, etc.)
-            SizedBox(
-              width: context.dynamicWidth(0.01),
-            ),
-            Expanded(
-              flex: 7,
-              child: Stack(
-                children: [
-                  Column(
+      body: LayoutBuilder(builder: (context, constraints) {
+        if (constraints.maxWidth > 800) {
+          return Padding(
+            padding: context.paddingAllDefault,
+            child: Row(
+              children: [
+                Expanded(
+                  flex: 2,
+                  child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Padding(
                         padding: context.paddingBottomLow,
                         child: Text(
-                          'Dart Class Output:',
+                          'JSON to Dart Class Converter',
                           style: context.textTheme.titleLarge,
                         ),
                       ),
@@ -400,43 +473,427 @@ class _DashboardState extends State<Dashboard> with DashboardMixin {
                         child: Container(
                           decoration: BoxDecoration(
                             border: Borders.kContainerBase,
+                            boxShadow: const [
+                              BoxShadows.kLarge,
+                            ],
                           ),
                           padding: context.paddingAllLow,
-                          width: double.infinity,
-                          child: SelectableText(
-                            _dartClass,
-                            cursorColor: AppColors.kPrimaryLight,
-                            textAlign: TextAlign.start,
-                            cursorRadius: const Radius.circular(5),
-                            textWidthBasis: TextWidthBasis.parent,
+                          child: Stack(
+                            children: [
+                              Form(
+                                key: formKey,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Padding(
+                                      padding: context.paddingVerticalDefault,
+                                      child: TextFormField(
+                                        textAlignVertical:
+                                            TextAlignVertical.top,
+                                        controller: _dartClassNameController,
+                                        maxLines: 1,
+                                        textAlign: TextAlign.start,
+                                        cursorColor: AppColors.kPrimaryLight,
+                                        mouseCursor: MouseCursor.defer,
+                                        keyboardType: TextInputType.multiline,
+                                        cursorErrorColor: AppColors.kError,
+                                        maxLengthEnforcement:
+                                            MaxLengthEnforcement
+                                                .truncateAfterCompositionEnds,
+                                        decoration: InputDecoration(
+                                          labelText: 'Class Name',
+                                          border: Borders.kTextInputBase,
+                                          hintText: "MyClass",
+                                          disabledBorder:
+                                              Borders.kTextInputDisabled,
+                                          errorBorder: Borders.kTextInputError,
+                                          focusedBorder:
+                                              Borders.kTextInputFocused,
+                                        ),
+                                      ),
+                                    ),
+                                    // Expanded(
+                                    //   child: TextFormField(
+                                    //     textAlignVertical: TextAlignVertical.top,
+                                    //     controller: _jsonController,
+                                    //     expands: true,
+                                    //     maxLines: null,
+                                    //     minLines: null,
+                                    //     autofocus: true,
+                                    //     cursorColor: AppColors.kPrimaryLight,
+                                    //     mouseCursor: MouseCursor.defer,
+                                    //     textAlign: TextAlign.start,
+                                    //     keyboardType: TextInputType.multiline,
+                                    //     cursorErrorColor: AppColors.kError,
+                                    //     validator: (value) => value!.isEmpty
+                                    //         ? 'Please enter a valid JSON'
+                                    //         : null,
+                                    //     maxLengthEnforcement: MaxLengthEnforcement
+                                    //         .truncateAfterCompositionEnds,
+                                    //     decoration: InputDecoration(
+                                    //       labelText: 'JSON',
+                                    //       border: Borders.kTextInputBase,
+                                    //       hintText: JsonConstants.jsonHint,
+                                    //       disabledBorder:
+                                    //           Borders.kTextInputDisabled,
+                                    //       errorBorder: Borders.kTextInputError,
+                                    //       focusedBorder: Borders.kTextInputFocused,
+                                    //     ),
+                                    //   ),
+                                    // ),
+                                    Expanded(
+                                      child: JsonTextField(
+                                        textAlignVertical:
+                                            TextAlignVertical.top,
+                                        controller: _jsonController,
+                                        expands: true,
+                                        maxLines: null,
+                                        minLines: null,
+                                        autofocus: true,
+                                        cursorColor: AppColors.kPrimaryLight,
+                                        mouseCursor: MouseCursor.defer,
+                                        textAlign: TextAlign.start,
+                                        keyboardType: TextInputType.multiline,
+                                        isFormatting: true,
+                                        maxLengthEnforcement:
+                                            MaxLengthEnforcement
+                                                .truncateAfterCompositionEnds,
+                                        decoration: InputDecoration(
+                                          labelText: 'JSON',
+                                          border: Borders.kTextInputBase,
+                                          hintText: JsonConstants.jsonHint,
+                                          disabledBorder:
+                                              Borders.kTextInputDisabled,
+                                          errorBorder: Borders.kTextInputError,
+                                          focusedBorder:
+                                              Borders.kTextInputFocused,
+                                        ),
+                                      ),
+                                    )
+                                  ],
+                                ),
+                              ),
+                              Padding(
+                                padding: context.paddingAllDefault,
+                                child: Align(
+                                  alignment: Alignment.bottomRight,
+                                  child: MaterialButton(
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    color: AppColors.kPrimaryLight,
+                                    onPressed: _convertJSON,
+                                    child: Padding(
+                                      padding: context.paddingAllLow,
+                                      child: Text(
+                                        'Convert to Dart Class',
+                                        style: context.textTheme.bodySmall
+                                            ?.copyWith(
+                                          color: AppColors.kWhite,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ),
                     ],
                   ),
-                  Align(
-                    alignment: Alignment.topRight,
-                    child: Padding(
-                      padding: context.paddingRightDefault,
-                      child: _methodsCard(),
-                    ),
-                  ),
-                  Align(
-                    alignment: Alignment.bottomRight,
-                    child: Padding(
-                      padding: EdgeInsets.only(
-                        right: context.defaultValue,
-                        bottom: context.defaultValue,
+                ),
+
+                // Class Generation Options (Null Safety, Types only, etc.)
+                SizedBox(
+                  width: context.dynamicWidth(0.01),
+                ),
+                Expanded(
+                  flex: 7,
+                  child: Stack(
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Padding(
+                            padding: context.paddingBottomLow,
+                            child: Text(
+                              'Dart Class Output:',
+                              style: context.textTheme.titleLarge,
+                            ),
+                          ),
+                          Expanded(
+                            child: Container(
+                              decoration: BoxDecoration(
+                                border: Borders.kContainerBase,
+                              ),
+                              padding: context.paddingAllLow,
+                              width: double.infinity,
+                              child: SelectableText(
+                                _dartClass,
+                                cursorColor: AppColors.kPrimaryLight,
+                                textAlign: TextAlign.start,
+                                cursorRadius: const Radius.circular(5),
+                                textWidthBasis: TextWidthBasis.parent,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                      child: _extraMethodsCard(),
+                      Align(
+                        alignment: Alignment.topRight,
+                        child: Padding(
+                          padding: context.paddingRightDefault,
+                          child: _methodsCard(),
+                        ),
+                      ),
+                      Align(
+                        alignment: Alignment.bottomRight,
+                        child: Padding(
+                          padding: EdgeInsets.only(
+                            right: context.defaultValue,
+                            bottom: context.defaultValue,
+                          ),
+                          child: _extraMethodsCard(),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        } else {
+          return Padding(
+            padding: context.paddingAllDefault,
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  SizedBox(
+                    height: context.dynamicHeight(0.4),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          flex: 2,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Padding(
+                                padding: context.paddingBottomLow,
+                                child: Text(
+                                  'JSON to Dart Class Converter',
+                                  style: context.textTheme.titleLarge,
+                                ),
+                              ),
+                              Expanded(
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    border: Borders.kContainerBase,
+                                    boxShadow: const [
+                                      BoxShadows.kLarge,
+                                    ],
+                                  ),
+                                  padding: context.paddingAllLow,
+                                  child: Stack(
+                                    children: [
+                                      Form(
+                                        key: formKey,
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Padding(
+                                              padding: context
+                                                  .paddingVerticalDefault,
+                                              child: TextFormField(
+                                                textAlignVertical:
+                                                    TextAlignVertical.top,
+                                                controller:
+                                                    _dartClassNameController,
+                                                maxLines: 1,
+                                                textAlign: TextAlign.start,
+                                                cursorColor:
+                                                    AppColors.kPrimaryLight,
+                                                mouseCursor: MouseCursor.defer,
+                                                keyboardType:
+                                                    TextInputType.multiline,
+                                                cursorErrorColor:
+                                                    AppColors.kError,
+                                                maxLengthEnforcement:
+                                                    MaxLengthEnforcement
+                                                        .truncateAfterCompositionEnds,
+                                                decoration: InputDecoration(
+                                                  labelText: 'Class Name',
+                                                  border:
+                                                      Borders.kTextInputBase,
+                                                  hintText: "MyClass",
+                                                  disabledBorder: Borders
+                                                      .kTextInputDisabled,
+                                                  errorBorder:
+                                                      Borders.kTextInputError,
+                                                  focusedBorder:
+                                                      Borders.kTextInputFocused,
+                                                ),
+                                              ),
+                                            ),
+                                            // Expanded(
+                                            //   child: TextFormField(
+                                            //     textAlignVertical: TextAlignVertical.top,
+                                            //     controller: _jsonController,
+                                            //     expands: true,
+                                            //     maxLines: null,
+                                            //     minLines: null,
+                                            //     autofocus: true,
+                                            //     cursorColor: AppColors.kPrimaryLight,
+                                            //     mouseCursor: MouseCursor.defer,
+                                            //     textAlign: TextAlign.start,
+                                            //     keyboardType: TextInputType.multiline,
+                                            //     cursorErrorColor: AppColors.kError,
+                                            //     validator: (value) => value!.isEmpty
+                                            //         ? 'Please enter a valid JSON'
+                                            //         : null,
+                                            //     maxLengthEnforcement: MaxLengthEnforcement
+                                            //         .truncateAfterCompositionEnds,
+                                            //     decoration: InputDecoration(
+                                            //       labelText: 'JSON',
+                                            //       border: Borders.kTextInputBase,
+                                            //       hintText: JsonConstants.jsonHint,
+                                            //       disabledBorder:
+                                            //           Borders.kTextInputDisabled,
+                                            //       errorBorder: Borders.kTextInputError,
+                                            //       focusedBorder: Borders.kTextInputFocused,
+                                            //     ),
+                                            //   ),
+                                            // ),
+                                            Expanded(
+                                              child: JsonTextField(
+                                                textAlignVertical:
+                                                    TextAlignVertical.top,
+                                                controller: _jsonController,
+                                                expands: true,
+                                                maxLines: null,
+                                                minLines: null,
+                                                autofocus: true,
+                                                cursorColor:
+                                                    AppColors.kPrimaryLight,
+                                                mouseCursor: MouseCursor.defer,
+                                                textAlign: TextAlign.start,
+                                                keyboardType:
+                                                    TextInputType.multiline,
+                                                isFormatting: true,
+                                                maxLengthEnforcement:
+                                                    MaxLengthEnforcement
+                                                        .truncateAfterCompositionEnds,
+                                                decoration: InputDecoration(
+                                                  labelText: 'JSON',
+                                                  border:
+                                                      Borders.kTextInputBase,
+                                                  hintText:
+                                                      JsonConstants.jsonHint,
+                                                  disabledBorder: Borders
+                                                      .kTextInputDisabled,
+                                                  errorBorder:
+                                                      Borders.kTextInputError,
+                                                  focusedBorder:
+                                                      Borders.kTextInputFocused,
+                                                ),
+                                              ),
+                                            )
+                                          ],
+                                        ),
+                                      ),
+                                      Padding(
+                                        padding: context.paddingAllDefault,
+                                        child: Align(
+                                          alignment: Alignment.bottomRight,
+                                          child: MaterialButton(
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(10),
+                                            ),
+                                            color: AppColors.kPrimaryLight,
+                                            onPressed: _convertJSON,
+                                            child: Padding(
+                                              padding: context.paddingAllLow,
+                                              child: Text(
+                                                'Convert to Dart Class',
+                                                style: context
+                                                    .textTheme.bodySmall
+                                                    ?.copyWith(
+                                                  color: AppColors.kWhite,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
                   ),
+                  SizedBox(
+                    height: context.dynamicHeight(0.03),
+                  ),
+                  SizedBox(
+                    height: context.dynamicHeight(0.4),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Padding(
+                          padding: context.paddingBottomLow,
+                          child: Text(
+                            'Dart Class Output:',
+                            style: context.textTheme.titleLarge,
+                          ),
+                        ),
+                        Expanded(
+                          child: Container(
+                            decoration: BoxDecoration(
+                              border: Borders.kContainerBase,
+                            ),
+                            padding: context.paddingAllLow,
+                            width: double.infinity,
+                            child: SelectableText(
+                              _dartClass,
+                              cursorColor: AppColors.kPrimaryLight,
+                              textAlign: TextAlign.start,
+                              cursorRadius: const Radius.circular(5),
+                              textWidthBasis: TextWidthBasis.parent,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  SizedBox(
+                    height: context.dynamicHeight(0.03),
+                  ),
+                  Padding(
+                    padding: context.paddingVerticalDefault,
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: _methodsCard(),
+                        ),
+                        Expanded(
+                          child: _extraMethodsCard(),
+                        ),
+                      ],
+                    ),
+                  )
                 ],
               ),
             ),
-          ],
-        ),
-      ),
+          );
+        }
+      }),
     );
   }
 
@@ -473,8 +930,11 @@ class _DashboardState extends State<Dashboard> with DashboardMixin {
                   ),
                 ),
                 ListTile(
-                  title:
-                      Text('Null Safety', style: context.textTheme.bodySmall),
+                  title: Text(
+                    'Null Safety',
+                    style: context.textTheme.bodySmall,
+                    textAlign: TextAlign.justify,
+                  ),
                   trailing: Transform.scale(
                     scale: context.dynamicHeight(0.0008),
                     child: Switch(
@@ -518,8 +978,11 @@ class _DashboardState extends State<Dashboard> with DashboardMixin {
                   ),
                 ),
                 ListTile(
-                  title: Text('Put encoder & decoder in Class',
-                      style: context.textTheme.bodySmall),
+                  title: Text(
+                    'Put encoder & decoder in Class',
+                    style: context.textTheme.bodySmall,
+                    textAlign: TextAlign.justify,
+                  ),
                   trailing: Transform.scale(
                     scale: context.dynamicHeight(0.0008),
                     child: Switch(
@@ -546,8 +1009,11 @@ class _DashboardState extends State<Dashboard> with DashboardMixin {
                   ),
                 ),
                 ListTile(
-                  title: Text('Make all properties required',
-                      style: context.textTheme.bodySmall),
+                  title: Text(
+                    'Make all properties required',
+                    style: context.textTheme.bodySmall,
+                    textAlign: TextAlign.justify,
+                  ),
                   trailing: Transform.scale(
                     scale: context.dynamicHeight(0.0008),
                     child: Switch(
@@ -569,8 +1035,11 @@ class _DashboardState extends State<Dashboard> with DashboardMixin {
                   ),
                 ),
                 ListTile(
-                  title: Text('Make all properties final',
-                      style: context.textTheme.bodySmall),
+                  title: Text(
+                    'Make all properties final',
+                    style: context.textTheme.bodySmall,
+                    textAlign: TextAlign.justify,
+                  ),
                   trailing: Transform.scale(
                     scale: context.dynamicHeight(0.0008),
                     child: Switch(
@@ -592,8 +1061,11 @@ class _DashboardState extends State<Dashboard> with DashboardMixin {
                   ),
                 ),
                 ListTile(
-                  title: Text('Generate CopyWith method',
-                      style: context.textTheme.bodySmall),
+                  title: Text(
+                    'Generate CopyWith method',
+                    style: context.textTheme.bodySmall,
+                    textAlign: TextAlign.justify,
+                  ),
                   trailing: Transform.scale(
                     scale: context.dynamicHeight(0.0008),
                     child: Switch(
@@ -615,8 +1087,11 @@ class _DashboardState extends State<Dashboard> with DashboardMixin {
                   ),
                 ),
                 ListTile(
-                  title: Text('Make all properties optional',
-                      style: context.textTheme.bodySmall),
+                  title: Text(
+                    'Make all properties optional',
+                    style: context.textTheme.bodySmall,
+                    textAlign: TextAlign.justify,
+                  ),
                   trailing: Transform.scale(
                     scale: context.dynamicHeight(0.0008),
                     child: Switch(
@@ -678,8 +1153,11 @@ class _DashboardState extends State<Dashboard> with DashboardMixin {
                 ),
                 // Part directive
                 ListTile(
-                  title: Text('Use this name in `part` directive',
-                      style: context.textTheme.bodySmall),
+                  title: Text(
+                    'Use this name in `part` directive',
+                    style: context.textTheme.bodySmall,
+                    textAlign: TextAlign.justify,
+                  ),
                   subtitle: TextFormField(
                     initialValue: partDirective,
                     decoration: InputDecoration(
@@ -698,8 +1176,10 @@ class _DashboardState extends State<Dashboard> with DashboardMixin {
                 // New Features
                 ListTile(
                   title: Text(
-                      'Generate class definitions with freezed compatibility',
-                      style: context.textTheme.bodySmall),
+                    'Generate class definitions with freezed compatibility',
+                    style: context.textTheme.bodySmall,
+                    textAlign: TextAlign.justify,
+                  ),
                   trailing: Transform.scale(
                     scale: context.dynamicHeight(0.0008),
                     child: Switch(
@@ -722,8 +1202,11 @@ class _DashboardState extends State<Dashboard> with DashboardMixin {
                   ),
                 ),
                 ListTile(
-                  title: Text('Generate annotations for Hive type adapters',
-                      style: context.textTheme.bodySmall),
+                  title: Text(
+                    'Generate annotations for Hive type adapters',
+                    style: context.textTheme.bodySmall,
+                    textAlign: TextAlign.justify,
+                  ),
                   trailing: Transform.scale(
                     scale: context.dynamicHeight(0.0008),
                     child: Switch(
@@ -745,8 +1228,11 @@ class _DashboardState extends State<Dashboard> with DashboardMixin {
                   ),
                 ),
                 ListTile(
-                  title: Text('Generate annotations for json_serializable',
-                      style: context.textTheme.bodySmall),
+                  title: Text(
+                    'Generate annotations for json_serializable',
+                    style: context.textTheme.bodySmall,
+                    textAlign: TextAlign.justify,
+                  ),
                   trailing: Transform.scale(
                     scale: context.dynamicHeight(0.0008),
                     child: Switch(
@@ -768,8 +1254,11 @@ class _DashboardState extends State<Dashboard> with DashboardMixin {
                   ),
                 ),
                 ListTile(
-                  title:
-                      Text('Detect UUIDs', style: context.textTheme.bodySmall),
+                  title: Text(
+                    'Detect UUIDs',
+                    style: context.textTheme.bodySmall,
+                    textAlign: TextAlign.justify,
+                  ),
                   trailing: Transform.scale(
                     scale: context.dynamicHeight(0.0008),
                     child: Switch(
@@ -786,8 +1275,11 @@ class _DashboardState extends State<Dashboard> with DashboardMixin {
                   ),
                 ),
                 ListTile(
-                  title: Text('Detect dates & times',
-                      style: context.textTheme.bodySmall),
+                  title: Text(
+                    'Detect dates & times',
+                    style: context.textTheme.bodySmall,
+                    textAlign: TextAlign.justify,
+                  ),
                   trailing: Transform.scale(
                     scale: context.dynamicHeight(0.0008),
                     child: Switch(
@@ -804,8 +1296,11 @@ class _DashboardState extends State<Dashboard> with DashboardMixin {
                   ),
                 ),
                 ListTile(
-                  title:
-                      Text('Detect maps', style: context.textTheme.bodySmall),
+                  title: Text(
+                    'Detect maps',
+                    style: context.textTheme.bodySmall,
+                    textAlign: TextAlign.justify,
+                  ),
                   trailing: Transform.scale(
                     scale: context.dynamicHeight(0.0008),
                     child: Switch(
@@ -822,8 +1317,11 @@ class _DashboardState extends State<Dashboard> with DashboardMixin {
                   ),
                 ),
                 ListTile(
-                  title: Text('Merge similar classes',
-                      style: context.textTheme.bodySmall),
+                  title: Text(
+                    'Merge similar classes',
+                    style: context.textTheme.bodySmall,
+                    textAlign: TextAlign.justify,
+                  ),
                   trailing: Transform.scale(
                     scale: context.dynamicHeight(0.0008),
                     child: Switch(

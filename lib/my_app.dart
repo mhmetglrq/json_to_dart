@@ -10,7 +10,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp.router(
-      title: 'Flutter Demo',
+      title: 'Json To Dart',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme(context),
       routerConfig: AppRouter.appRouter,

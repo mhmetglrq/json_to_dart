@@ -9,7 +9,7 @@ class AppTheme {
     return ThemeData(
       brightness: Brightness.light,
       primaryColor: AppColors.kPrimaryLight,
-      scaffoldBackgroundColor: AppColors.kWhite,
+      scaffoldBackgroundColor: AppColors.kScaffoldBackground,
       fontFamily: 'HelveticaNeue',
       textTheme: TextTheme(
         displayLarge: TextStyle(

@@ -8,6 +8,7 @@ class AppColors {
   static const Color kError = Color(0xFFFB2047);
   static const Color kBlack = Color(0xFF000000);
   static const Color kWhite = Color(0xFFFFFFFF);
+  static const Color kScaffoldBackground = Color(0xFFF4F7FE);
 
   // Neutral colors
   static const Color kNeutral100 = Color(0xFF1E202C);
